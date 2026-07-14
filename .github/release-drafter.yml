@@ -1,0 +1,10 @@
+name-template: "E2E $RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+change-template: "- $TITLE (#$NUMBER)"
+template: |
+  ## Changes
+
+  $CHANGES
+version-resolver:
+  default: patch
+
