@@ -1,10 +1,19 @@
 name-template: "E2E $RESOLVED_VERSION"
 tag-template: "v$RESOLVED_VERSION"
 change-template: "- $TITLE (#$NUMBER)"
-template: |
-  ## Changes
-
-  $CHANGES
-version-resolver:
-  default: patch
-
+category-template: "### $TITLE"
+template: "\n\n## v$RESOLVED_VERSION\n\n$CHANGES\n\n"
+categories:
+  - title: Features
+    semver-increment: minor
+    when:
+      label: feature
+  - title: Fixes
+    semver-increment: patch
+    when:
+      label: bug
+  - title: Documentation
+    semver-increment: patch
+    when:
+      label: documentation
+  - title: Other changes

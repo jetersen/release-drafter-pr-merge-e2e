@@ -1,0 +1,183 @@
+name: Generate cumulative CHANGELOG
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  changelog:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'release/changelog-')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the same-repository PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Read desired version from package proof
+        id: version
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          version="$(jq -er '.version' dummy.package.json)"
+          [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]
+          [[ "${HEAD_REF}" == "release/changelog-v${version}" ]]
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "desired_version=${version}"
+
+      - name: Prepare prior changelog as multiline footer
+        id: prior_changelog
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          footer_file="${RUNNER_TEMP}/changelog-footer.md"
+          current_heading="## v${VERSION}"
+
+          awk -v current_heading="${current_heading}" '
+            NR == 1 && $0 == "# Changelog" { next }
+            $0 == current_heading { skipping_current = 1; next }
+            skipping_current && /^## v/ { skipping_current = 0 }
+            !skipping_current { lines[++line_count] = $0 }
+            END {
+              first = 1
+              while (first <= line_count && lines[first] == "") first++
+              for (line = first; line <= line_count; line++) print lines[line]
+            }
+          ' CHANGELOG.md > "${footer_file}"
+
+          delimiter="CHANGELOG_FOOTER_$(date +%s%N)_${RANDOM}"
+          while grep -Fqx "${delimiter}" "${footer_file}"; do
+            delimiter="${delimiter}_X"
+          done
+
+          {
+            printf 'footer<<%s\n' "${delimiter}"
+            cat "${footer_file}"
+            printf '%s\n' "${delimiter}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "footer_path=${footer_file}" >> "${GITHUB_OUTPUT}"
+
+          printf 'prepared_footer<<EOF\n%s\nEOF\n' "$(<"${footer_file}")"
+
+      - name: Record release state before action
+        id: before
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq 'length')"
+          echo "count=${count}" >> "${GITHUB_OUTPUT}"
+          echo "release_count_before=${count}"
+
+      - name: Generate cumulative notes in automatic output-only mode
+        id: release_drafter
+        uses: release-drafter/release-drafter@feat/resolve-tag-commitish
+        with:
+          publish: true
+          version: ${{ steps.version.outputs.version }}
+          name: E2E v${{ steps.version.outputs.version }}
+          tag: v${{ steps.version.outputs.version }}
+          header: '# Changelog'
+          footer: ${{ steps.prior_changelog.outputs.footer }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Safely write exact action body
+        env:
+          RELEASE_BODY: ${{ steps.release_drafter.outputs.body }}
+        run: |
+          printf '%s' "${RELEASE_BODY}" > CHANGELOG.md
+
+      - name: Verify cumulative changelog and no release write
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTPUT_HTML_URL: ${{ steps.release_drafter.outputs.html_url }}
+          OUTPUT_ID: ${{ steps.release_drafter.outputs.id }}
+          OUTPUT_NAME: ${{ steps.release_drafter.outputs.name }}
+          OUTPUT_RESOLVED_VERSION: ${{ steps.release_drafter.outputs.resolved_version }}
+          OUTPUT_TAG_NAME: ${{ steps.release_drafter.outputs.tag_name }}
+          OUTPUT_UPLOAD_URL: ${{ steps.release_drafter.outputs.upload_url }}
+          PRIOR_FOOTER_PATH: ${{ steps.prior_changelog.outputs.footer_path }}
+          RELEASE_COUNT_BEFORE: ${{ steps.before.outputs.count }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          release_count_after="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq 'length')"
+          current_heading="## v${VERSION}"
+          generated_footer="${RUNNER_TEMP}/generated-footer.md"
+
+          printf 'github_ref=%s\n' "${GITHUB_REF}"
+          printf 'release_count_before=%s\n' "${RELEASE_COUNT_BEFORE}"
+          printf 'release_count_after=%s\n' "${release_count_after}"
+          printf 'output_id=%s\n' "${OUTPUT_ID}"
+          printf 'output_name=%s\n' "${OUTPUT_NAME}"
+          printf 'output_tag_name=%s\n' "${OUTPUT_TAG_NAME}"
+          printf 'output_resolved_version=%s\n' "${OUTPUT_RESOLVED_VERSION}"
+          printf 'output_html_url=%s\n' "${OUTPUT_HTML_URL}"
+          printf 'output_upload_url=%s\n' "${OUTPUT_UPLOAD_URL}"
+          printf 'changelog<<EOF\n%s\nEOF\n' "$(<CHANGELOG.md)"
+
+          [[ "${GITHUB_REF}" =~ ^refs/pull/[0-9]+/merge$ ]]
+          [[ "${release_count_after}" == "${RELEASE_COUNT_BEFORE}" ]]
+          [[ -z "${OUTPUT_ID}" ]]
+          [[ -z "${OUTPUT_HTML_URL}" ]]
+          [[ -z "${OUTPUT_UPLOAD_URL}" ]]
+          [[ "${OUTPUT_NAME}" == "E2E v${VERSION}" ]]
+          [[ "${OUTPUT_TAG_NAME}" == "v${VERSION}" ]]
+          [[ "${OUTPUT_RESOLVED_VERSION}" == "${VERSION}" ]]
+
+          [[ "$(grep -Fxc '# Changelog' CHANGELOG.md)" == 1 ]]
+          [[ "$(grep -Fxc "${current_heading}" CHANGELOG.md)" == 1 ]]
+          grep -Eq '^### .+' CHANGELOG.md
+          grep -Eq '^- .+ \(#[0-9]+\)$' CHANGELOG.md
+
+          awk -v current_heading="${current_heading}" '
+            $0 == current_heading { found_current = 1; next }
+            found_current && /^## v/ { copying_footer = 1 }
+            copying_footer { print }
+          ' CHANGELOG.md > "${generated_footer}"
+
+          [[ "$(<"${generated_footer}")" == "$(<"${PRIOR_FOOTER_PATH}")" ]]
+
+          current_line="$(grep -Fn "${current_heading}" CHANGELOG.md | cut -d: -f1)"
+          if [[ -s "${PRIOR_FOOTER_PATH}" ]]; then
+            prior_heading="$(grep -m1 '^## v' "${PRIOR_FOOTER_PATH}")"
+            prior_line="$(grep -Fn "${prior_heading}" CHANGELOG.md | cut -d: -f1)"
+            (( current_line < prior_line ))
+          fi
+
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "Unexpected v${VERSION} release exists." >&2
+            exit 1
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "Unexpected v${VERSION} tag exists." >&2
+            exit 1
+          fi
+
+      - name: Commit generated cumulative changelog to PR branch
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git diff --quiet -- CHANGELOG.md; then
+            echo 'CHANGELOG.md is already up to date.'
+            exit 0
+          fi
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add CHANGELOG.md
+          git commit -m "docs: generate cumulative v${VERSION} changelog"
+          git push origin "HEAD:${HEAD_REF}"
+
