@@ -1,0 +1,74 @@
+name: Pull merge ref E2E
+
+on:
+  pull_request:
+    branches:
+      - release/v1
+    # Opening the fixture PR does not run the test. A synchronize event is
+    # pushed only after the action branch under test is ready.
+    types:
+      - synchronize
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  release-drafter:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record release state before action
+        id: before
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq 'length')"
+          echo "count=${count}" >> "${GITHUB_OUTPUT}"
+          echo "release_count_before=${count}"
+
+      - name: Run Release Drafter with unsafe publish input
+        id: release_drafter
+        uses: release-drafter/release-drafter@feat/resolve-tag-commitish
+        with:
+          publish: true
+          version: 0.2.0
+          name: E2E v0.2.0
+          tag: v0.2.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log and verify output-only result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTPUT_BODY: ${{ steps.release_drafter.outputs.body }}
+          OUTPUT_HTML_URL: ${{ steps.release_drafter.outputs.html_url }}
+          OUTPUT_ID: ${{ steps.release_drafter.outputs.id }}
+          OUTPUT_NAME: ${{ steps.release_drafter.outputs.name }}
+          OUTPUT_RESOLVED_VERSION: ${{ steps.release_drafter.outputs.resolved_version }}
+          OUTPUT_TAG_NAME: ${{ steps.release_drafter.outputs.tag_name }}
+          OUTPUT_UPLOAD_URL: ${{ steps.release_drafter.outputs.upload_url }}
+          RELEASE_COUNT_BEFORE: ${{ steps.before.outputs.count }}
+        run: |
+          release_count_after="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq 'length')"
+
+          printf 'github_ref=%s\n' "${GITHUB_REF}"
+          printf 'release_count_before=%s\n' "${RELEASE_COUNT_BEFORE}"
+          printf 'release_count_after=%s\n' "${release_count_after}"
+          printf 'output_id=%s\n' "${OUTPUT_ID}"
+          printf 'output_name=%s\n' "${OUTPUT_NAME}"
+          printf 'output_tag_name=%s\n' "${OUTPUT_TAG_NAME}"
+          printf 'output_resolved_version=%s\n' "${OUTPUT_RESOLVED_VERSION}"
+          printf 'output_html_url=%s\n' "${OUTPUT_HTML_URL}"
+          printf 'output_upload_url=%s\n' "${OUTPUT_UPLOAD_URL}"
+          printf 'output_body<<EOF\n%s\nEOF\n' "${OUTPUT_BODY}"
+
+          [[ "${GITHUB_REF}" =~ ^refs/pull/[0-9]+/merge$ ]]
+          [[ "${release_count_after}" == "${RELEASE_COUNT_BEFORE}" ]]
+          [[ -z "${OUTPUT_ID}" ]]
+          [[ -z "${OUTPUT_HTML_URL}" ]]
+          [[ -z "${OUTPUT_UPLOAD_URL}" ]]
+          [[ "${OUTPUT_NAME}" == "E2E v0.2.0" ]]
+          [[ "${OUTPUT_TAG_NAME}" == "v0.2.0" ]]
+          [[ "${OUTPUT_RESOLVED_VERSION}" == "0.2.0" ]]
+          [[ -n "${OUTPUT_BODY}" ]]
+
