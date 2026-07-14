@@ -17,7 +17,7 @@ jobs:
   changelog:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.head_ref, 'release/changelog-')
+      github.head_ref == 'release/changelog-v0.2.0'
     runs-on: ubuntu-latest
     steps:
       - name: Check out the same-repository PR head
