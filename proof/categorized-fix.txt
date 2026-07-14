@@ -1,0 +1,1 @@
+This change proves that a bug-labeled PR appears under Fixes.
