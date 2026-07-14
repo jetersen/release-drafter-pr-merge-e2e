@@ -83,9 +83,11 @@ jobs:
           [[ "${OUTPUT_NAME}" == "E2E v0.2.0" ]]
           [[ "${OUTPUT_TAG_NAME}" == "v0.2.0" ]]
           [[ "${OUTPUT_RESOLVED_VERSION}" == "0.2.0" ]]
-          grep -Fx '## Features' CHANGELOG.md
+          grep -Fx '# Changelog' CHANGELOG.md
+          grep -Fx '## v0.2.0' CHANGELOG.md
+          grep -Fx '### Features' CHANGELOG.md
           grep -Fx -- '- Add categorized feature proof (#2)' CHANGELOG.md
-          grep -Fx '## Fixes' CHANGELOG.md
+          grep -Fx '### Fixes' CHANGELOG.md
           grep -Fx -- '- Correct categorized bug proof (#3)' CHANGELOG.md
 
       - name: Commit generated changelog to PR branch

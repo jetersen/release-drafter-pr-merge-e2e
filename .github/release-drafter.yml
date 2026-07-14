@@ -1,7 +1,12 @@
 name-template: "E2E $RESOLVED_VERSION"
 tag-template: "v$RESOLVED_VERSION"
 change-template: "- $TITLE (#$NUMBER)"
+category-template: "### $TITLE"
 template: |
+  # Changelog
+
+  ## v$RESOLVED_VERSION
+
   $CHANGES
 categories:
   - title: Features
@@ -13,4 +18,3 @@ categories:
     when:
       label: bug
   - title: Other changes
-
