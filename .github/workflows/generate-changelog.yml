@@ -1,0 +1,104 @@
+name: Generate CHANGELOG from pull merge ref
+
+on:
+  pull_request:
+    branches:
+      - release/v1
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  changelog:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'release/changelog-')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the same-repository PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Record release state before action
+        id: before
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq 'length')"
+          echo "count=${count}" >> "${GITHUB_OUTPUT}"
+          echo "release_count_before=${count}"
+
+      - name: Generate release notes in automatic output-only mode
+        id: release_drafter
+        uses: release-drafter/release-drafter@feat/resolve-tag-commitish
+        with:
+          publish: true
+          version: 0.2.0
+          name: E2E v0.2.0
+          tag: v0.2.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Safely write CHANGELOG.md
+        env:
+          RELEASE_BODY: ${{ steps.release_drafter.outputs.body }}
+        run: |
+          printf '%s' "${RELEASE_BODY}" > CHANGELOG.md
+
+      - name: Verify categorized changelog and no release write
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTPUT_HTML_URL: ${{ steps.release_drafter.outputs.html_url }}
+          OUTPUT_ID: ${{ steps.release_drafter.outputs.id }}
+          OUTPUT_NAME: ${{ steps.release_drafter.outputs.name }}
+          OUTPUT_RESOLVED_VERSION: ${{ steps.release_drafter.outputs.resolved_version }}
+          OUTPUT_TAG_NAME: ${{ steps.release_drafter.outputs.tag_name }}
+          OUTPUT_UPLOAD_URL: ${{ steps.release_drafter.outputs.upload_url }}
+          RELEASE_COUNT_BEFORE: ${{ steps.before.outputs.count }}
+        run: |
+          release_count_after="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq 'length')"
+
+          printf 'github_ref=%s\n' "${GITHUB_REF}"
+          printf 'release_count_before=%s\n' "${RELEASE_COUNT_BEFORE}"
+          printf 'release_count_after=%s\n' "${release_count_after}"
+          printf 'output_id=%s\n' "${OUTPUT_ID}"
+          printf 'output_name=%s\n' "${OUTPUT_NAME}"
+          printf 'output_tag_name=%s\n' "${OUTPUT_TAG_NAME}"
+          printf 'output_resolved_version=%s\n' "${OUTPUT_RESOLVED_VERSION}"
+          printf 'output_html_url=%s\n' "${OUTPUT_HTML_URL}"
+          printf 'output_upload_url=%s\n' "${OUTPUT_UPLOAD_URL}"
+          printf 'changelog<<EOF\n%s\nEOF\n' "$(<CHANGELOG.md)"
+
+          [[ "${GITHUB_REF}" =~ ^refs/pull/[0-9]+/merge$ ]]
+          [[ "${release_count_after}" == "${RELEASE_COUNT_BEFORE}" ]]
+          [[ -z "${OUTPUT_ID}" ]]
+          [[ -z "${OUTPUT_HTML_URL}" ]]
+          [[ -z "${OUTPUT_UPLOAD_URL}" ]]
+          [[ "${OUTPUT_NAME}" == "E2E v0.2.0" ]]
+          [[ "${OUTPUT_TAG_NAME}" == "v0.2.0" ]]
+          [[ "${OUTPUT_RESOLVED_VERSION}" == "0.2.0" ]]
+          grep -Fx '## Features' CHANGELOG.md
+          grep -Fx -- '- Add categorized feature proof (#2)' CHANGELOG.md
+          grep -Fx '## Fixes' CHANGELOG.md
+          grep -Fx -- '- Correct categorized bug proof (#3)' CHANGELOG.md
+
+      - name: Commit generated changelog to PR branch
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if git diff --quiet -- CHANGELOG.md; then
+            echo 'CHANGELOG.md is already up to date.'
+            exit 0
+          fi
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add CHANGELOG.md
+          git commit -m 'docs: generate categorized changelog'
+          git push origin "HEAD:${HEAD_REF}"
