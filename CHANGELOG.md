@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.0.0
+
+### Features
+
+- Add v2 release branch feature (#18)
+
+### Fixes
+
+- Fix v2 release branch bug (#19)
+
+### Documentation
+
+- Document v2 release branch proof (#20)
+
 ## v1.0.0
 
 ### Features
