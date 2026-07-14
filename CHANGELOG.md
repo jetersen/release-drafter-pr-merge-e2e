@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.0.0
+
+### Features
+
+- Add stable v1 feature proof (#15)
+
+### Fixes
+
+- Fix stable v1 bug proof (#16)
+
 ## v0.5.0
 
 ### Features
