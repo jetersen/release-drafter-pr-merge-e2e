@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.0
+
+### Features
+
+- Add v0.4 generic workflow feature (#9)
+
+### Fixes
+
+- Fix v0.4 generic workflow bug (#10)
+
 ## v0.3.0
 
 ### Features
